@@ -23,6 +23,15 @@ pnpm render examples/intro.js intro.wav 30   # rend 30 secondes en WAV
 
 Nécessite Node 20+ et pnpm 10.
 
+Dans le playground :
+
+- le code qui joue est **surligné** en direct dans l'éditeur ;
+- **Ctrl+Espace** complète les fonctions et les noms de sons ; le survol d'une fonction affiche son aide ;
+- les erreurs sont expliquées **en français**, avec la ligne fautive soulignée et une suggestion en cas
+  de faute de frappe ;
+- l'onglet **Canaux** montre un oscilloscope par canal, l'onglet **Registres** les octets écrits dans la
+  puce à chaque frame, et l'onglet **Aide** toutes les fonctions avec un exemple à écouter.
+
 ## Les cinq canaux
 
 | Canal        | Nom dans le code           | Ce qu'il fait                                                      |

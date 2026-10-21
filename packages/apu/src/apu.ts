@@ -53,6 +53,8 @@ export class Apu {
   private remainder = 0;
   private level = 0;
 
+  private probe: { interval: number; next: number; data: Uint8Array[]; count: number } | null = null;
+
   private frameMode: 4 | 5 = 4;
   private frameStep = 0;
   private frameStart = 0;
@@ -128,6 +130,7 @@ export class Apu {
       if (noise.nextClock < t) t = noise.nextClock;
       if (dmc.nextClock < t) t = dmc.nextClock;
       if (t > end) break;
+      if (this.probe) this.sampleProbe(t);
       this.time = t;
       if (this.frameNext === t) this.stepFrameCounter();
       if (p1.nextClock === t) p1.clockTimer();
@@ -138,9 +141,52 @@ export class Apu {
       this.updateLevel();
     }
 
+    if (this.probe) this.sampleProbe(end + 1);
     this.time = end;
     this.blip.endFrame(end - this.blipStart);
     this.blipStart = end;
+  }
+
+  /**
+   * Starts recording each channel's output every `interval` cycles, for
+   * per-channel oscilloscopes. Recording does not change the audio.
+   */
+  enableProbe(interval: number, capacity = 2048): void {
+    this.probe = {
+      interval,
+      next: this.time,
+      data: Array.from({ length: 5 }, () => new Uint8Array(capacity)),
+      count: 0,
+    };
+  }
+
+  disableProbe(): void {
+    this.probe = null;
+  }
+
+  /** Channel outputs recorded since the last call: pulse 1, pulse 2, triangle, noise, DMC. */
+  takeProbe(): Uint8Array[] | null {
+    const p = this.probe;
+    if (!p) return null;
+    const out = p.data.map((d) => d.slice(0, p.count));
+    p.count = 0;
+    return out;
+  }
+
+  /** Records the outputs at every probe point before `time`. */
+  private sampleProbe(time: number): void {
+    const p = this.probe!;
+    while (p.next < time) {
+      if (p.count < p.data[0].length) {
+        p.data[0][p.count] = this.pulse1.output();
+        p.data[1][p.count] = this.pulse2.output();
+        p.data[2][p.count] = this.triangle.output();
+        p.data[3][p.count] = this.noise.output();
+        p.data[4][p.count] = this.dmc.output();
+        p.count++;
+      }
+      p.next += p.interval;
+    }
   }
 
   private stepFrameCounter(): void {
