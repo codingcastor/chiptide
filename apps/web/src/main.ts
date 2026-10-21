@@ -1,5 +1,9 @@
 import workletUrl from '@chiptide/apu/worklet?worker&url';
-import { LivePlayer } from '@chiptide/engine';
+import { ChiptideError, FUNCTIONS, LivePlayer, instrumentNames } from '@chiptide/engine';
+import { CodeEditor } from './editor';
+import { HelpPanel } from './help';
+import { RegisterView } from './registers';
+import { ChannelScopes, PROBE_POINTS } from './scopes';
 
 const examples = import.meta.glob<string>('../../../examples/*.js', {
   query: '?raw',
@@ -10,40 +14,21 @@ const exampleNames = Object.keys(examples).sort();
 const nameOf = (path: string) => path.split('/').pop()!.replace(/\.js$/, '');
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const editor = $<HTMLTextAreaElement>('code');
 const status = $<HTMLDivElement>('status');
 const exampleSelect = $<HTMLSelectElement>('examples');
 const volume = $<HTMLInputElement>('volume');
 const scope = $<HTMLCanvasElement>('scope');
 
-const CHANNELS = [
-  { id: 'pulse1', label: 'Pulse 1', max: 15 },
-  { id: 'pulse2', label: 'Pulse 2', max: 15 },
-  { id: 'triangle', label: 'Triangle', max: 15 },
-  { id: 'noise', label: 'Noise', max: 15 },
-  { id: 'dmc', label: 'DPCM', max: 127 },
-] as const;
-
-const channelList = $<HTMLUListElement>('channels');
-const meters = CHANNELS.map((ch) => {
-  const li = document.createElement('li');
-  li.style.setProperty('--color', `var(--${ch.id})`);
-  li.innerHTML = `<span>${ch.label}</span><span class="note">—</span><span class="bar"><span></span></span>`;
-  channelList.append(li);
-  return {
-    note: li.querySelector('.note') as HTMLElement,
-    bar: li.querySelector('.bar span') as HTMLElement,
-  };
-});
-
-// ------------------------------------------------------------------ status
+// ------------------------------------------------------------------ status line
 
 const warnings = new Set<string>();
-function showStatus(kind: 'ok' | 'error', message: string): void {
+let statusMessage: { kind: 'ok' | 'error'; text: string } = { kind: 'ok', text: '' };
+
+function renderStatus(): void {
   status.innerHTML = '';
   const line = document.createElement('div');
-  line.className = kind;
-  line.textContent = message;
+  line.className = statusMessage.kind;
+  line.textContent = statusMessage.text;
   status.append(line);
   for (const w of warnings) {
     const el = document.createElement('div');
@@ -53,54 +38,102 @@ function showStatus(kind: 'ok' | 'error', message: string): void {
   }
 }
 
-// ------------------------------------------------------------------ player
+function showStatus(kind: 'ok' | 'error', text: string): void {
+  statusMessage = { kind, text };
+  renderStatus();
+}
 
-const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-const noteName = (midi: number) => {
-  const n = Math.round(midi);
-  return `${NOTE_NAMES[((n % 12) + 12) % 12]}${Math.floor(n / 12) - 1}`;
-};
+// ------------------------------------------------------------------ player and panels
 
-let levels: number[] = [0, 0, 0, 0, 0];
+const scopes = new ChannelScopes($('scopes'));
+const registerView = new RegisterView($('registers'));
+let visibleTab = 'channels';
+/** False while an example from the help plays: its positions do not match the editor. */
+let playingEditorCode = false;
+
 const player = new LivePlayer({
   workletUrl,
   onWarning: (w) => {
     warnings.add(w);
-    showStatus('ok', status.firstElementChild?.textContent ?? '');
+    renderStatus();
   },
-  onError: (e) => showStatus('error', `Erreur pendant la lecture : ${e.message}`),
-  onFrame: ({ channels }) => {
-    levels = channels.map((c) => (c.active ? c.volume : 0));
-    channels.forEach((c, i) => {
-      if (i === 4) meters[i].note.textContent = c.active ? '▶' : '—';
-      else if (i === 3) meters[i].note.textContent = c.active ? `n${Math.round(c.pitch)}` : '—';
-      else meters[i].note.textContent = c.active ? noteName(c.pitch) : '—';
-    });
+  onError: (e) => {
+    showStatus('error', `Erreur pendant la lecture : ${e.message}`);
+    if (e instanceof ChiptideError) editor.showError(e.range ?? null);
   },
+  onFrame: (info) => {
+    if (playingEditorCode) editor.highlight(info.locations);
+    if (visibleTab === 'channels') scopes.update(info.probe, info.channels);
+    if (visibleTab === 'registers') registerView.update(info.registers, info.writes);
+  },
+});
+player.setProbe(PROBE_POINTS);
+
+const editor = new CodeEditor({
+  parent: $('editor'),
+  doc: initialCode(),
+  docs: FUNCTIONS,
+  sounds: () => [...instrumentNames(), ...player.session.samples.names()],
+  onRun: () => void play(),
+  onStop: stop,
 });
 
 // Handy from the browser console, and used by the end-to-end tests.
-(window as unknown as { chiptide: LivePlayer }).chiptide = player;
+Object.assign(window, { chiptide: player, chiptideEditor: editor });
 
 async function play(): Promise<void> {
   warnings.clear();
+  const code = editor.code;
   try {
-    await player.evaluate(editor.value);
+    await player.evaluate(code);
+    playingEditorCode = true;
+    editor.markEvaluated();
     showStatus('ok', `▶ Lecture (${(player.session.cps * 60).toFixed(1)} cycles/min)`);
-    save();
+    save(code);
     startScope();
   } catch (e) {
-    showStatus('error', (e as Error).message);
+    const range = e instanceof ChiptideError ? e.range : undefined;
+    const where = range ? `Ligne ${range.line} : ` : '';
+    showStatus('error', `${where}${(e as Error).message}`);
+    editor.showError(range ?? null);
   }
 }
 
 function stop(): void {
   player.stop();
-  levels = [0, 0, 0, 0, 0];
+  editor.highlight([]);
+  scopes.clear();
   showStatus('ok', '■ Arrêté');
 }
 
-// ------------------------------------------------------------------ scope & meters
+new HelpPanel($('help'), FUNCTIONS, async (example, name) => {
+  warnings.clear();
+  try {
+    await player.evaluate(example);
+    playingEditorCode = false;
+    editor.highlight([]);
+    showStatus('ok', `▶ Exemple de ${name}. Ctrl+Entrée pour revenir à votre code.`);
+    startScope();
+  } catch (e) {
+    showStatus('error', (e as Error).message);
+  }
+});
+
+// ------------------------------------------------------------------ tabs
+
+for (const tab of document.querySelectorAll<HTMLButtonElement>('[role=tab]')) {
+  tab.addEventListener('click', () => {
+    visibleTab = tab.dataset.tab!;
+    for (const t of document.querySelectorAll<HTMLButtonElement>('[role=tab]')) {
+      t.setAttribute('aria-selected', String(t === tab));
+    }
+    for (const panel of document.querySelectorAll<HTMLElement>('.tab-panel')) {
+      panel.hidden = panel.dataset.panel !== visibleTab;
+    }
+  });
+}
+
+// ------------------------------------------------------------------ master oscilloscope
 
 let analyser: AnalyserNode | null = null;
 function startScope(): void {
@@ -109,16 +142,22 @@ function startScope(): void {
   analyser.fftSize = 2048;
   player.output.connect(analyser);
   const data = new Float32Array(analyser.fftSize);
-  const ctx = scope.getContext('2d')!;
   const draw = () => {
     requestAnimationFrame(draw);
-    const { width, height } = scope;
+    if (visibleTab !== 'channels') return;
+    const ratio = window.devicePixelRatio || 1;
+    const width = Math.round(scope.clientWidth * ratio);
+    const height = Math.round(scope.clientHeight * ratio);
+    if (scope.width !== width || scope.height !== height) {
+      scope.width = width;
+      scope.height = height;
+    }
+    const ctx = scope.getContext('2d')!;
     analyser!.getFloatTimeDomainData(data);
     ctx.clearRect(0, 0, width, height);
     ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent');
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 * ratio;
     ctx.beginPath();
-    // Start on a rising zero crossing so the waveform stands still.
     let start = 0;
     while (start < data.length / 2 && !(data[start] <= 0 && data[start + 1] > 0)) start++;
     const span = data.length / 2;
@@ -129,9 +168,6 @@ function startScope(): void {
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
-    meters.forEach((m, i) => {
-      m.bar.style.width = `${(levels[i] / (i === 4 ? 1 : CHANNELS[i].max)) * 100}%`;
-    });
   };
   draw();
 }
@@ -144,10 +180,10 @@ function encode(code: string): string {
 function decode(text: string): string {
   return new TextDecoder().decode(Uint8Array.from(atob(text), (c) => c.charCodeAt(0)));
 }
-function save(): void {
-  history.replaceState(null, '', `#${encode(editor.value)}`);
+function save(code: string): void {
+  history.replaceState(null, '', `#${encode(code)}`);
   try {
-    localStorage.setItem('chiptide:code', editor.value);
+    localStorage.setItem('chiptide:code', code);
   } catch {
     // Storage can be unavailable (private mode); the URL still has the code.
   }
@@ -175,30 +211,15 @@ exampleSelect.append(new Option('Exemples…', ''));
 for (const path of exampleNames) exampleSelect.append(new Option(nameOf(path), path));
 exampleSelect.addEventListener('change', () => {
   if (!exampleSelect.value) return;
-  editor.value = examples[exampleSelect.value];
+  editor.code = examples[exampleSelect.value];
   exampleSelect.value = '';
-  if (player.playing) play();
+  if (player.playing) void play();
 });
 
-editor.value = initialCode();
-volume.value = '1';
 player.setVolume(1.5);
 volume.addEventListener('input', () => player.setVolume(Number(volume.value) * 1.5));
-$('play').addEventListener('click', play);
+$('play').addEventListener('click', () => void play());
 $('stop').addEventListener('click', stop);
-
-editor.addEventListener('keydown', (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-    event.preventDefault();
-    play();
-  } else if ((event.ctrlKey || event.metaKey) && event.key === '.') {
-    event.preventDefault();
-    stop();
-  } else if (event.key === 'Tab' && !event.shiftKey) {
-    event.preventDefault();
-    editor.setRangeText('  ', editor.selectionStart, editor.selectionEnd, 'end');
-  }
-});
 document.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === '.') {
     event.preventDefault();

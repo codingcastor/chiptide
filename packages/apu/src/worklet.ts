@@ -20,6 +20,7 @@ class ChiptideProcessor extends AudioWorkletProcessor {
   private nextFrame = 0;
   private late = 0;
   private silenceNext = false;
+  private probePoints = 0;
   private queue = new Float32Array(4096);
   private queued = 0;
 
@@ -33,11 +34,21 @@ class ChiptideProcessor extends AudioWorkletProcessor {
       case 'init':
         this.renderer = new FrameRenderer({ sampleRate, region: msg.region });
         this.pending.clear();
+        this.setProbe(this.probePoints);
+        break;
+      case 'probe':
+        this.setProbe(msg.points);
         break;
       case 'frames':
         for (const f of msg.frames) {
-          if (f.index >= this.nextFrame || !this.playing) this.pending.set(f.index, f.writes);
-          else this.late++;
+          if (f.index >= this.nextFrame || !this.playing) {
+            this.pending.set(f.index, f.writes);
+          } else {
+            // Too late for its frame: play it on the next one rather than lose its notes.
+            this.late++;
+            const next = this.pending.get(this.nextFrame) ?? [];
+            this.pending.set(this.nextFrame, [...f.writes, ...next]);
+          }
         }
         break;
       case 'start':
@@ -55,6 +66,13 @@ class ChiptideProcessor extends AudioWorkletProcessor {
     }
   }
 
+  private setProbe(points: number): void {
+    this.probePoints = points;
+    const apu = this.renderer.apu;
+    if (points > 0) apu.enableProbe(apu.timing.frameCycles / points, points * 2);
+    else apu.disableProbe();
+  }
+
   private renderNextFrame(): void {
     let writes: RegisterWrite[] = [];
     if (this.silenceNext) {
@@ -65,6 +83,8 @@ class ChiptideProcessor extends AudioWorkletProcessor {
       this.pending.delete(this.nextFrame);
     }
     const samples = this.renderer.renderFrame(writes);
+    // Probe data of silent frames (not playing) is not sent anywhere.
+    if (!this.playing) this.renderer.apu.takeProbe();
     if (this.queued + samples.length > this.queue.length) {
       const bigger = new Float32Array(this.queue.length * 2);
       bigger.set(this.queue.subarray(0, this.queued));
@@ -73,13 +93,15 @@ class ChiptideProcessor extends AudioWorkletProcessor {
     this.queue.set(samples, this.queued);
     this.queued += samples.length;
     if (this.playing) {
+      const probe = this.renderer.apu.takeProbe() ?? undefined;
       const msg: FromWorklet = {
         type: 'frame',
         index: this.nextFrame,
         levels: this.renderer.apu.levels(),
         late: this.late,
+        probe,
       };
-      this.port.postMessage(msg);
+      this.port.postMessage(msg, probe ? probe.map((p) => p.buffer) : []);
       this.nextFrame++;
     }
   }

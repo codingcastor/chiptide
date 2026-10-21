@@ -243,3 +243,26 @@ describe('FrameRenderer', () => {
     expect(Array.from(a)).toEqual(Array.from(b));
   });
 });
+
+describe('probe', () => {
+  it('records each channel without changing the audio', () => {
+    const writes = [
+      { address: 0x4015, value: 0x0f },
+      { address: 0x4000, value: 0xbf },
+      { address: 0x4002, value: 253 },
+      { address: 0x4003, value: 0 },
+    ];
+    const plain = new FrameRenderer({ sampleRate: RATE });
+    const probed = new FrameRenderer({ sampleRate: RATE });
+    probed.apu.enableProbe(116);
+    const a = plain.renderFrames([writes, [], []]);
+    const b = probed.renderFrames([writes, [], []]);
+    expect(Array.from(b)).toEqual(Array.from(a));
+    const [p1, p2] = probed.apu.takeProbe()!;
+    expect(p1.length).toBe(Math.ceil((3 * NTSC.frameCycles) / 116));
+    expect(Math.max(...p1)).toBe(15);
+    expect(Math.min(...p1)).toBe(0);
+    expect(Math.max(...p2)).toBe(0);
+    expect(probed.apu.takeProbe()![0].length).toBe(0);
+  });
+});

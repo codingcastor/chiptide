@@ -12,7 +12,9 @@ export type ToWorklet =
   /** Silences the APU and stops consuming frames. */
   | { type: 'stop' }
   /** Copies DPCM sample data into CPU memory. */
-  | { type: 'memory'; address: number; data: Uint8Array };
+  | { type: 'memory'; address: number; data: Uint8Array }
+  /** Records per-channel outputs `points` times per frame (0 disables), sent with each frame. */
+  | { type: 'probe'; points: number };
 
 /** Messages from the worklet to the main thread. */
 export type FromWorklet = {
@@ -20,6 +22,8 @@ export type FromWorklet = {
   /** Index of the frame just rendered. */
   index: number;
   levels: ChannelLevels;
-  /** Frames rendered without their writes because they arrived late. */
+  /** Frames whose writes arrived after the frame was rendered (they play one frame late). */
   late: number;
+  /** Per-channel outputs during the frame when probing: pulse 1, pulse 2, triangle, noise, DMC. */
+  probe?: Uint8Array[];
 };
