@@ -16,7 +16,8 @@
     "render": "vite-node --config vitest.config.ts packages/engine/scripts/render.ts --",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "docs": "vite-node --config vitest.config.ts packages/engine/scripts/docs.ts && prettier --write docs/reference.md"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

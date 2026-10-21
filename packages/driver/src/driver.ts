@@ -1,6 +1,13 @@
 import { frameRate, type Region, type RegisterWrite } from '@chiptide/apu';
 import { MacroCursor } from './macro';
-import { noisePeriodIndex, pulsePeriod, trianglePeriod } from './pitch';
+import {
+  noisePeriodIndex,
+  noteName,
+  pulsePeriod,
+  rawPulsePeriod,
+  rawTrianglePeriod,
+  trianglePeriod,
+} from './pitch';
 import { CHANNELS, type ArpMode, type ChannelId, type ChannelState, type NoteEvent } from './types';
 
 export interface DriverOptions {
@@ -166,7 +173,10 @@ export class Driver {
     for (const event of plainAuto) {
       const channel = candidates.shift();
       if (channel) add(channel, event);
-      else this.warn(`More than two pulse notes at once: dropped ${event.note}. Use .chordarp() for chords.`);
+      else
+        this.warn(
+          'Plus de deux notes de pulse en même temps : les plus graves sont ignorées. Utilisez .chordarp() pour les accords.',
+        );
     }
 
     for (const [channel, list] of byChannel) this.start(channel, list);
@@ -196,8 +206,8 @@ export class Driver {
       notes = [event.note];
       this.warn(
         lowest
-          ? `${events.length} drums at once on noise: kept the lowest.`
-          : `${events.length} notes at once on ${channel}: kept the highest. Use .chordarp() to arpeggiate chords.`,
+          ? 'Plusieurs sons de bruit en même temps : seul le plus grave est joué.'
+          : `Plusieurs notes en même temps sur ${channel} : seule la plus aiguë est jouée. Utilisez .chordarp() pour les accords.`,
       );
     }
 
@@ -302,6 +312,7 @@ export class Driver {
   ) {
     const base = BASE[channel];
     const period = pulsePeriod(pitch, this.region);
+    if (voice.age === 0) this.checkRange(channel, pitch, rawPulsePeriod(pitch, this.region), 8);
     this.write(base, ((duty & 3) << 6) | 0x30 | volume);
     const sweep = voice.event.sweep;
     if (sweep && sweep.shift > 0) {
@@ -317,6 +328,7 @@ export class Driver {
 
   private updateTriangle(voice: Voice, volume: number, pitch: number): void {
     const period = trianglePeriod(pitch, this.region);
+    if (voice.age === 0) this.checkRange('triangle', pitch, rawTrianglePeriod(pitch, this.region), 2);
     // The triangle has no volume control: any non-zero volume plays it.
     const audible = volume > 0 && period >= 2;
     this.write(0x4008, audible ? 0xff : 0x80);
@@ -365,7 +377,7 @@ export class Driver {
   private startSample(event: NoteEvent): void {
     const sample = event.sample;
     if (!sample) {
-      this.warn('DMC note without a sample: ignored.');
+      this.warn('Note DPCM sans sample : ignorée.');
       this.voices.dmc = null;
       return;
     }
@@ -376,6 +388,14 @@ export class Driver {
     this.write(0x4012, ((sample.address - 0xc000) >> 6) & 0xff);
     this.write(0x4013, ((sample.length - 1) >> 4) & 0xff);
     this.write(0x4015, ENABLE_MASK | 0x10, true);
+  }
+
+  /** Warns when a note falls outside what the channel's 11-bit timer can play. */
+  private checkRange(channel: ChannelId, pitch: number, raw: number, minPeriod: number): void {
+    if (raw > 0x7ff)
+      this.warn(`${noteName(pitch)} est trop grave pour ${channel} : la note est jouée plus haut.`);
+    else if (raw < minPeriod)
+      this.warn(`${noteName(pitch)} est trop aiguë pour ${channel} : la note est muette.`);
   }
 
   private warn(message: string): void {

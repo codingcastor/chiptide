@@ -18,3 +18,18 @@ export function trianglePeriod(midi: number, region: Region): number {
 
 /** Noise pitch 0-15 (15 brightest) to the period index written to $400E. */
 export const noisePeriodIndex = (pitch: number): number => 15 - Math.max(0, Math.min(15, Math.round(pitch)));
+
+const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+/** Note name such as "A4" for a MIDI number. */
+export function noteName(midi: number): string {
+  const n = Math.round(midi);
+  return `${NAMES[((n % 12) + 12) % 12]}${Math.floor(n / 12) - 1}`;
+}
+
+/** Unclamped pulse period, to detect notes out of range. */
+export const rawPulsePeriod = (midi: number, region: Region): number =>
+  Math.round(REGIONS[region].cpuClock / (16 * midiToFrequency(midi)) - 1);
+
+export const rawTrianglePeriod = (midi: number, region: Region): number =>
+  Math.round(REGIONS[region].cpuClock / (32 * midiToFrequency(midi)) - 1);

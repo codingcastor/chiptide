@@ -1,5 +1,6 @@
 import { macro, type ChannelTarget, type Instrument } from '@chiptide/driver';
 import { toMacro, type MacroInput } from './controls';
+import { ChiptideError, suggestion } from './errors';
 
 /** What `instrument()` accepts: macros plus default note settings. */
 export interface InstrumentDefinition {
@@ -18,7 +19,43 @@ export interface InstrumentDefinition {
   vibmod?: number;
   slide?: number;
   glide?: number;
+  sweep?: number;
+  sweeprate?: number;
+  chordarp?: string;
+  arpspeed?: number;
+  /** DPCM playback rate 0-15. */
+  rate?: number;
+  /** Strudel-style envelope, converted to a volume macro when `env` is not given. */
+  attack?: number;
+  decay?: number;
+  sustain?: number;
+  release?: number;
 }
+
+const INSTRUMENT_KEYS = [
+  'ch',
+  'env',
+  'dutyenv',
+  'arpenv',
+  'pitchenv',
+  'duty',
+  'vol',
+  'n',
+  'metal',
+  'vib',
+  'vibmod',
+  'slide',
+  'glide',
+  'sweep',
+  'sweeprate',
+  'chordarp',
+  'arpspeed',
+  'rate',
+  'attack',
+  'decay',
+  'sustain',
+  'release',
+];
 
 export interface ResolvedInstrument {
   name: string;
@@ -28,7 +65,7 @@ export interface ResolvedInstrument {
   defaults: Record<string, unknown>;
 }
 
-const CHANNEL_ALIASES: Record<string, ChannelTarget> = {
+export const CHANNEL_ALIASES: Record<string, ChannelTarget> = {
   pulse: 'pulse',
   square: 'pulse',
   sq: 'pulse',
@@ -54,13 +91,32 @@ export function channelFromName(name: unknown): ChannelTarget | undefined {
 }
 
 export function resolveInstrument(name: string, def: InstrumentDefinition): ResolvedInstrument {
+  if (!def || typeof def !== 'object') {
+    throw new ChiptideError(
+      `instrument('${name}') : la définition doit être un objet { ch, duty, env, ... }.`,
+    );
+  }
+  for (const key of Object.keys(def)) {
+    if (!INSTRUMENT_KEYS.includes(key)) {
+      throw new ChiptideError(
+        `instrument('${name}') : propriété inconnue « ${key} ».${suggestion(key, INSTRUMENT_KEYS)}`,
+      );
+    }
+  }
   const macros: Instrument = {};
-  if (def.env !== undefined) macros.volume = toMacro(def.env, `${name}.env`);
-  if (def.dutyenv !== undefined) macros.duty = toMacro(def.dutyenv, `${name}.dutyenv`);
-  if (def.arpenv !== undefined) macros.arpeggio = toMacro(def.arpenv, `${name}.arpenv`);
-  if (def.pitchenv !== undefined) macros.pitch = toMacro(def.pitchenv, `${name}.pitchenv`);
+  if (def.env !== undefined) macros.volume = toMacro(def.env, 'env', `instrument('${name}').env`);
+  if (def.dutyenv !== undefined)
+    macros.duty = toMacro(def.dutyenv, 'dutyenv', `instrument('${name}').dutyenv`);
+  if (def.arpenv !== undefined)
+    macros.arpeggio = toMacro(def.arpenv, 'arpenv', `instrument('${name}').arpenv`);
+  if (def.pitchenv !== undefined)
+    macros.pitch = toMacro(def.pitchenv, 'pitchenv', `instrument('${name}').pitchenv`);
   const channel = def.ch === undefined ? undefined : channelFromName(def.ch);
-  if (def.ch !== undefined && !channel) throw new Error(`${name}: unknown channel "${def.ch}"`);
+  if (def.ch !== undefined && !channel) {
+    throw new ChiptideError(
+      `instrument('${name}') : canal inconnu « ${def.ch} ».${suggestion(String(def.ch), Object.keys(CHANNEL_ALIASES))}`,
+    );
+  }
   const { ch: _ch, env: _e, dutyenv: _d, arpenv: _a, pitchenv: _p, ...defaults } = def;
   return { name, channel, macros, defaults };
 }
@@ -91,11 +147,18 @@ loadPresets();
 
 /** Defines an instrument usable with `.s(name)` or `.inst(name)`. Returns its name. */
 export function instrument(name: string, def: InstrumentDefinition): string {
+  if (typeof name !== 'string' || !name) {
+    throw new ChiptideError(
+      `instrument() : le premier argument est le nom, par exemple instrument('lead', { ... }).`,
+    );
+  }
   registry.set(name, resolveInstrument(name, def));
   return name;
 }
 
 export const getInstrument = (name: string): ResolvedInstrument | undefined => registry.get(name);
+
+export const instrumentNames = (): string[] => [...registry.keys()];
 
 /** Forgets user instruments (between evaluations), keeping the presets. */
 export function resetInstruments(): void {

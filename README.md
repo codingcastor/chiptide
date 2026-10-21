@@ -54,6 +54,11 @@ dans les jeux NES. Avec `pulse`, les notes sont réparties automatiquement sur l
 | `instrument('nom', { ch, duty, env, ... })` | Définit un instrument utilisable avec `.s('nom')`                        |
 
 Sons intégrés : `hh oh sd bd cr mt` (bruit), `tk` (grosse caisse au triangle), `kick snare tom` (DPCM).
+Les enveloppes ADSR de Strudel (`.attack()`, `.decay()`, `.sustain()`, `.release()`) sont converties en
+enveloppes par frame.
+
+La liste complète, avec un exemple pour chaque fonction, est dans
+[docs/reference.md](docs/reference.md).
 
 Les enveloppes s'écrivent avec un tableau ou une chaîne entre **apostrophes** (`'15 12 | 8'`) : entre
 guillemets doubles, Strudel lit une chaîne comme un pattern de mini-notation.

@@ -53,6 +53,11 @@ describe('macros', () => {
     expect(values(new MacroCursor(macro([3, 2, 1])), 5)).toEqual([3, 2, 1, 1, 1]);
   });
 
+  it('holds the first value when the release point is first', () => {
+    const m = new MacroCursor(macro(['/', 8, 0]));
+    expect(values(m, 4, 2)).toEqual([8, 8, 8, 0]);
+  });
+
   it('rejects empty macros', () => {
     expect(() => macro(['|'])).toThrow();
   });
