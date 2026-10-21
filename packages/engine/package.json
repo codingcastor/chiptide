@@ -1,0 +1,18 @@
+{
+  "name": "@chiptide/engine",
+  "version": "0.1.0",
+  "description": "Strudel patterns played through the NES sound driver, live or offline",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@chiptide/apu": "workspace:*",
+    "@chiptide/driver": "workspace:*",
+    "@strudel/core": "1.2.6",
+    "@strudel/mini": "1.2.6",
+    "@strudel/transpiler": "1.2.6",
+    "@strudel/tonal": "1.2.6"
+  }
+}
