@@ -1,0 +1,11 @@
+{
+  "name": "@chiptide/apu",
+  "version": "0.1.0",
+  "description": "Cycle-driven emulation of the NES 2A03 audio processing unit with band-limited output",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worklet": "./src/worklet.ts"
+  }
+}

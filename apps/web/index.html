@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chiptide</title>
+    <meta
+      name="description"
+      content="Live coding de musique NES dans le navigateur, avec les patterns de Strudel."
+    />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Chiptide</h1>
+      <div class="controls">
+        <button id="play" title="Évaluer et jouer (Ctrl+Entrée)">▶ Jouer</button>
+        <button id="stop" title="Arrêter (Ctrl+.)">■ Stop</button>
+        <select id="examples" aria-label="Exemples"></select>
+        <label class="volume"
+          >Volume <input id="volume" type="range" min="0" max="2" step="0.05" value="1"
+        /></label>
+      </div>
+    </header>
+    <main>
+      <textarea
+        id="code"
+        spellcheck="false"
+        autocapitalize="off"
+        autocomplete="off"
+        aria-label="Code"
+      ></textarea>
+      <aside>
+        <canvas id="scope" width="600" height="140" aria-label="Oscilloscope"></canvas>
+        <ul id="channels"></ul>
+        <div id="status" role="status"></div>
+        <details class="help">
+          <summary>Aide rapide</summary>
+          <ul>
+            <li>
+              <code>.ch("p1")</code> canal : <code>p1</code> <code>p2</code> <code>pulse</code>
+              <code>tri</code> <code>noise</code> <code>dmc</code>
+            </li>
+            <li><code>.duty(12.5)</code> rapport cyclique : 12.5, 25, 50, 75</li>
+            <li><code>.vol(10)</code> volume 0–15</li>
+            <li>
+              <code>.env([15, 12, '|', 9, '/', 4, 0])</code> enveloppe par frame : <code>|</code> boucle,
+              <code>/</code> relâchement
+            </li>
+            <li>
+              <code>.arpenv([0, 4, 7])</code>, <code>.pitchenv([...])</code>, <code>.dutyenv([...])</code>
+            </li>
+            <li><code>.chordarp("up")</code> joue les accords en arpège, <code>.arpspeed(2)</code></li>
+            <li>
+              <code>.vib(5).vibmod(0.3)</code>, <code>.slide(-0.2)</code>, <code>.glide(6)</code>,
+              <code>.sweep(-3)</code>
+            </li>
+            <li>
+              Batterie bruit : <code>hh oh sd bd cr mt</code>, triangle : <code>tk</code>, DPCM :
+              <code>kick snare tom</code>
+            </li>
+            <li><code>instrument('nom', { ch, duty, env, ... })</code> puis <code>.s('nom')</code></li>
+          </ul>
+        </details>
+      </aside>
+    </main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
