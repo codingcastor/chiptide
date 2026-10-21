@@ -43,6 +43,7 @@ export function encodeDpcm(
 export interface SampleBank {
   has(name: string): boolean;
   get(name: string, index?: number): DpcmSample | undefined;
+  names(): string[];
 }
 
 /** Lays DPCM samples out in CPU memory ($C000-$FFFF, 64-byte aligned). */
@@ -57,7 +58,8 @@ export class DpcmBank implements SampleBank {
     options: { rate?: number; loop?: boolean; level?: number } = {},
   ): DpcmSample {
     const length = Math.min(4081, data.length);
-    if (this.next + length > DPCM_END) throw new Error(`DPCM memory is full (16 KiB): cannot add "${name}"`);
+    if (this.next + length > DPCM_END)
+      throw new Error(`Mémoire DPCM pleine (16 Ko) : impossible d'ajouter « ${name} »`);
     const sample: DpcmSample = {
       address: this.next,
       length,

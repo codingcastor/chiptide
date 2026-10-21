@@ -4,6 +4,7 @@ import * as tonal from '@strudel/tonal';
 import { transpiler } from '@strudel/transpiler';
 import { Pattern, isPattern, silence, stack } from '@strudel/core';
 import { controls } from './controls';
+import { ChiptideError, explainError } from './errors';
 import { instrument, resetInstruments } from './instruments';
 
 export interface Evaluation {
@@ -37,9 +38,11 @@ const scope = {
   ...controls,
   instrument,
   setcps: (cps: number) => {
+    if (!(cps > 0)) throw new ChiptideError(`setcps() attend un tempo positif, reçu ${cps}.`);
     pendingCps = cps;
   },
   setcpm: (cpm: number) => {
+    if (!(cpm > 0)) throw new ChiptideError(`setcpm() attend un tempo positif, reçu ${cpm}.`);
     pendingCps = cpm / 60;
   },
   hush: () => {
@@ -56,18 +59,37 @@ export function prepareScope(): Promise<unknown> {
   return ready;
 }
 
-/** Evaluates live code and returns the pattern it plays. */
+/** Names usable in code, for "did you mean" suggestions. */
+export function knownNames(): string[] {
+  const methods = Object.getOwnPropertyNames(Pattern.prototype).filter((n) => !n.startsWith('_'));
+  return [
+    ...new Set([
+      ...Object.keys(core),
+      ...Object.keys(mini),
+      ...Object.keys(tonal),
+      ...Object.keys(scope),
+      ...methods,
+    ]),
+  ];
+}
+
+/** Evaluates live code and returns the pattern it plays. Errors are ChiptideErrors in French. */
 export async function evaluateCode(code: string): Promise<Evaluation> {
   await prepareScope();
   collected = new Map();
   anonymous = 0;
   pendingCps = undefined;
   resetInstruments();
-  const { pattern } = await core.evaluate(code, transpiler);
+  let pattern: unknown;
+  try {
+    ({ pattern } = await core.evaluate(code, transpiler));
+  } catch (error) {
+    throw explainError(error, code, knownNames());
+  }
   let result: Pattern;
   if (collected.size > 0) result = stack(...collected.values());
   else if (isPattern(pattern)) result = pattern;
   else if (pattern === undefined) result = silence;
-  else throw new Error('The code must end with a pattern, for example note("c4 e4 g4")');
+  else throw new ChiptideError('Le code doit se terminer par un pattern, par exemple note("c4 e4 g4").');
   return { pattern: result, cps: pendingCps };
 }

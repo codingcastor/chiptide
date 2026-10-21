@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { Session, encodeDpcm, encodeWav, evaluateCode, renderCode, toMacro } from '../src';
+import {
+  ChiptideError,
+  Session,
+  adsrMacro,
+  encodeDpcm,
+  encodeWav,
+  evaluateCode,
+  renderCode,
+  toMacro,
+} from '../src';
 
 const rms = (s: Float32Array) => Math.sqrt(s.reduce((a, x) => a + x * x, 0) / s.length);
 
@@ -22,13 +31,13 @@ describe('evaluateCode', () => {
   });
 
   it('parses macros from arrays and single-quoted strings', async () => {
-    expect(toMacro([15, 12, '|', 8, '/', 0])).toEqual({ values: [15, 12, 8, 0], loop: 2, release: 3 });
+    expect(toMacro([15, 12, '|', 8, '/', 0], 'env')).toEqual({ values: [15, 12, 8, 0], loop: 2, release: 3 });
     const { pattern } = await evaluateCode(`note("c4").env('15 10 | 5')`);
     expect(pattern.queryArc(0, 1)[0].value.env).toEqual({ values: [15, 10, 5], loop: 2, release: -1 });
   });
 
   it('explains how to write macros when given a mini-notation pattern', async () => {
-    await expect(evaluateCode(`note("c4").env("15 12")`)).rejects.toThrow(/single-quoted/);
+    await expect(evaluateCode(`note("c4").env("15 12")`)).rejects.toThrow(/apostrophes/);
   });
 
   it('supports scales and chords from @strudel/tonal', async () => {
@@ -72,7 +81,87 @@ describe('Session', () => {
     const session = new Session({ onWarning: (w) => warnings.push(w) });
     await session.evaluate(`s("nope*4")`);
     session.nextFrames(200);
-    expect(warnings).toEqual(['Unknown sound "nope".']);
+    expect(warnings).toEqual(['Son inconnu « nope ».']);
+  });
+});
+
+describe('errors and warnings', () => {
+  const failure = async (code: string) => {
+    try {
+      await evaluateCode(code);
+    } catch (e) {
+      return e as ChiptideError;
+    }
+    throw new Error('expected an error');
+  };
+
+  it('locates syntax errors', async () => {
+    const e = await failure(`note("c4")\nnote("e4"`);
+    expect(e.message).toMatch(/^Erreur de syntaxe/);
+    expect(e.range?.line).toBe(2);
+  });
+
+  it('locates mini-notation errors on the faulty string', async () => {
+    const code = `stack(note("c4 e4"), note("c4 [e4"))`;
+    const e = await failure(code);
+    expect(e.message).toContain('mini-notation');
+    expect(code.slice(e.range!.from, e.range!.to)).toBe('c4 [e4');
+  });
+
+  it('suggests names for unknown functions and methods', async () => {
+    expect((await failure(`nte("c4")`)).message).toBe("« nte » n'existe pas. Vouliez-vous dire « note » ?");
+    const e = await failure(`note("c4").dutty(25)`);
+    expect(e.message).toBe("La fonction .dutty() n'existe pas. Vouliez-vous dire « duty » ?");
+    expect(e.range?.column).toBe(12);
+  });
+
+  it('checks macro values and instrument keys', async () => {
+    await expect(evaluateCode(`note("c4").env([20])`)).rejects.toThrow('les volumes vont de 0 à 15');
+    await expect(evaluateCode(`instrument('x', { dutty: 1 })`)).rejects.toThrow('Vouliez-vous dire « duty »');
+    expect(toMacro([12.5, 50], 'dutyenv').values).toEqual([0, 2]);
+  });
+
+  it('warns about values out of range and suggests sound names', async () => {
+    const warnings: string[] = [];
+    const session = new Session({ onWarning: (w) => warnings.push(w) });
+    await session.evaluate(
+      `stack(s("hhh"), note("c4").vol(20), note("c4").duty(33), note("a0").ch("p1"), s("noise").n(18))`,
+    );
+    session.nextFrames(10);
+    expect(warnings).toEqual([
+      'Son inconnu « hhh ». Vouliez-vous dire « hh » ?',
+      '.vol() va de 0 à 15, reçu 20.',
+      '.duty() accepte 12.5, 25, 50, 75 (ou 0 à 3), reçu 33.',
+      'Bruit : n va de 0 (grave) à 15 (aigu), reçu 18.',
+      expect.stringContaining('Plus de deux notes de pulse'),
+      'A0 est trop grave pour pulse1 : la note est jouée plus haut.',
+    ]);
+  });
+});
+
+describe('ADSR', () => {
+  it('turns attack, decay, sustain and release into a volume macro', () => {
+    const m = adsrMacro({ attack: 2 / 60, decay: 3 / 60, sustain: 0.6, release: 2 / 60 }, 60);
+    expect(m).toEqual({ values: [5, 10, 15, 13, 11, 9, 9, 5, 0], loop: 6, release: 7 });
+  });
+
+  it('applies ADSR controls to notes', async () => {
+    const session = new Session();
+    await session.evaluate(`note("c4").attack(0.05).release(0.1)`);
+    const [first] = session.nextFrames(1);
+    expect(first.findLast((w) => w.address === 0x4000)!.value & 15).toBeLessThan(15);
+  });
+});
+
+describe('highlighting', () => {
+  it('reports the code of sounding notes', async () => {
+    const code = `note("c4 e4")`;
+    const session = new Session();
+    await session.evaluate(code);
+    session.nextFrames(80);
+    const text = (frame: number) => session.activeLocations(frame).map((l) => code.slice(l.start, l.end));
+    expect(text(10)).toEqual(['c4']);
+    expect(text(70)).toEqual(['e4']);
   });
 });
 

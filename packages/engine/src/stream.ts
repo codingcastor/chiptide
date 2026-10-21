@@ -39,7 +39,7 @@ export class PatternStream {
 
   /** Changes the tempo, in cycles per second, from the next frame on. */
   setCps(cps: number): void {
-    if (!(cps > 0)) throw new Error(`Invalid tempo: ${cps} cycles per second`);
+    if (!(cps > 0)) throw new Error(`Tempo invalide : ${cps} cycles par seconde`);
     this._cps = cps;
   }
 

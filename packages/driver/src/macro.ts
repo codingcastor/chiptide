@@ -17,11 +17,11 @@ export function macro(items: readonly (number | string)[]): Macro {
     else if (item === RELEASE) release = values.length;
     else {
       const value = Number(item);
-      if (!Number.isFinite(value)) throw new Error(`Invalid macro value: ${String(item)}`);
+      if (!Number.isFinite(value)) throw new Error(`Valeur de macro invalide : ${String(item)}`);
       values.push(value);
     }
   }
-  if (values.length === 0) throw new Error('A macro needs at least one value');
+  if (values.length === 0) throw new Error('Une macro doit contenir au moins une valeur');
   if (loop >= values.length) loop = -1;
   if (release >= values.length) release = -1;
   return { values, loop, release };
@@ -50,7 +50,7 @@ export class MacroCursor {
     if (!this.released && loop >= 0 && next >= loopEnd) {
       this.position = loop;
     } else if (!this.released && release >= 0 && next >= release) {
-      this.position = release - 1;
+      this.position = Math.max(0, release - 1);
     } else {
       this.position = Math.min(next, values.length - 1);
     }
